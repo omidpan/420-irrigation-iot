@@ -31,7 +31,7 @@ irrigation-iot/
 │   ├── requirements.txt         paho-mqtt 2.x
 │   ├── irrigation-node.service  optional: start on boot with systemd
 │   └── Dockerfile               only for the simulated Pi on the laptop
-└── local/                       runs on the laptop
+└── local-server/                       runs on the laptop
     ├── docker-compose.yml
     ├── mosquitto/config/mosquitto.conf
     ├── common/                  db.py (schema) + dummy_sensors.py, copied into images
@@ -44,7 +44,7 @@ irrigation-iot/
 ## 1. Laptop: start the stack
 
 ```bash
-cd local
+cd local-server
 docker compose up -d --build
 docker compose ps                 # mosquitto, subscriber, web, grafana: running
 ```
@@ -82,14 +82,14 @@ in Python's standard library. Check the buffer at any time with `python db.py`.
 
 Settings are environment variables (defaults in brackets):
 
-| Variable | Meaning |
-|---|---|
-| `MQTT_HOST` [192.168.1.50] / `MQTT_PORT` [1883] | the laptop running Mosquitto |
-| `DEVICE_ID` [pi5-01] | lowercase letters, digits, hyphens |
-| `SAMPLE_SECONDS` [5] | time between readings |
-| `OFFLINE_AFTER_SECONDS` [60] | no delivery for this long = OFFLINE, keep buffering |
-| `PUBLISH_TIMEOUT_SECONDS` [5] | wait this long for the broker's PUBACK |
-| `KEEP_SENT_DAYS` [7] | delivered rows kept in pi_buffer.db; pending rows are never deleted |
+| Variable                                        | Meaning                                                             |
+| ----------------------------------------------- | ------------------------------------------------------------------- |
+| `MQTT_HOST` [192.168.1.50] / `MQTT_PORT` [1883] | the laptop running Mosquitto                                        |
+| `DEVICE_ID` [pi5-01]                            | lowercase letters, digits, hyphens                                  |
+| `SAMPLE_SECONDS` [5]                            | time between readings                                               |
+| `OFFLINE_AFTER_SECONDS` [60]                    | no delivery for this long = OFFLINE, keep buffering                 |
+| `PUBLISH_TIMEOUT_SECONDS` [5]                   | wait this long for the broker's PUBACK                              |
+| `KEEP_SENT_DAYS` [7]                            | delivered rows kept in pi_buffer.db; pending rows are never deleted |
 
 No Pi at hand? Simulate one on the laptop:
 `docker compose --profile simulator up -d --build` (device `pi5-sim`).
@@ -109,6 +109,7 @@ No Pi at hand? Simulate one on the laptop:
    - The Flask table marks late rows as `buffered, +Ns`.
 
 Other tests:
+
 - Stop the subscriber instead (`docker compose stop subscriber`). Mosquitto keeps the QoS 1 messages for it (persistent session) and delivers them on start.
 - Pull the Pi's network cable or turn off Wi-Fi: same result as step 2.
 - Duplicates: a message sent twice (after a connection drop before the PUBACK) is ignored thanks to the unique `msg_id`.
@@ -271,7 +272,10 @@ A device that does not send the new value yet is still accepted. The column stay
 `local/web/templates/index.html`: a card, a chart and a table column:
 
 ```html
-<div class="card"><h2>Soil moisture</h2><p id="soilValue">–</p></div>
+<div class="card">
+  <h2>Soil moisture</h2>
+  <p id="soilValue">–</p>
+</div>
 ...
 <div class="chart-box"><canvas id="soilChart"></canvas></div>
 ...
@@ -281,14 +285,26 @@ A device that does not send the new value yet is still accepted. The column stay
 `local/web/static/app.js`:
 
 ```javascript
-const soilChart = makeChart('soilChart', 'line', 'Soil moisture (%)', '#2e8b57', '%');
+const soilChart = makeChart(
+  "soilChart",
+  "line",
+  "Soil moisture (%)",
+  "#2e8b57",
+  "%",
+);
 
 // inside refresh(), next to the other setData() calls:
-setData(soilChart, labels, hist.readings.map((r) => r.soil_moisture));
-document.getElementById('soilValue').textContent = r ? fmt(r.soil_moisture, '%') : '–';
+setData(
+  soilChart,
+  labels,
+  hist.readings.map((r) => r.soil_moisture),
+);
+document.getElementById("soilValue").textContent = r
+  ? fmt(r.soil_moisture, "%")
+  : "–";
 
 // inside the recent-readings row template, before the Delivery cell:
-<td>${fmt(row.soil_moisture, '')}</td>
+<td>${fmt(row.soil_moisture, "")}</td>;
 ```
 
 The `.cards` grid has 4 columns. With a 5th card, change it to
@@ -323,14 +339,14 @@ its buffer are sent as they are, without the new value.
 
 **Checklist**
 
-| Layer | File | Change |
-|---|---|---|
-| Pi | `pi/sensors.py` (+ copy to `local/common/dummy_sensors.py`) | return the new value |
-| Database | `local/common/db.py` + one `ALTER TABLE` | new column |
-| Subscriber | `validation.py`, `subscriber.py` | range + `INSERT_SQL` |
-| Flask | `web/app.py` | 3 queries |
-| Chart.js | `index.html`, `static/app.js` (+ `style.css`) | card, chart, table cell |
-| Grafana | dashboard JSON (via Export) | new panel(s) |
+| Layer      | File                                                        | Change                  |
+| ---------- | ----------------------------------------------------------- | ----------------------- |
+| Pi         | `pi/sensors.py` (+ copy to `local/common/dummy_sensors.py`) | return the new value    |
+| Database   | `local/common/db.py` + one `ALTER TABLE`                    | new column              |
+| Subscriber | `validation.py`, `subscriber.py`                            | range + `INSERT_SQL`    |
+| Flask      | `web/app.py`                                                | 3 queries               |
+| Chart.js   | `index.html`, `static/app.js` (+ `style.css`)               | card, chart, table cell |
+| Grafana    | dashboard JSON (via Export)                                 | new panel(s)            |
 
 ## Notes
 
